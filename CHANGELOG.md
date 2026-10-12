@@ -31,6 +31,10 @@ while the major version is 0, a minor release may change behaviour and says so h
 
 ### Added
 
+- **Cloudflare door: `--preset redirect-rules --zone <zone>`** — Zone Read + Dynamic URL Redirects Write (Single
+  Redirects) on one zone, into a vault slot, verified by reading the zone's `http_request_dynamic_redirect`
+  entrypoint with the new value. A zone with no redirect yet answers 404 there to a token that may read it and
+  403 to one that may not, so for this preset alone a 404 counts as the proof.
 - **A usage report** (OBS-53; contract DEC-0021): the server declares `surfaces.usage` and answers
   `GET /fabric/v1/usage` with the service token — the last 31 days of the assistant's paid model calls by provider
   and model, from a receipt written at every charge (tokens and cost with its basis, never a prompt or a caller).
