@@ -2402,8 +2402,8 @@
     {
       "path": "tests/test_credential_doors.py",
       "source_sha256": "f008811e75e70131f87e329de7768c58b166901a4900dcfa483f4bc570c29afc",
-      "export_sha256": "814cb6015653cde372b603e99786259c6fed517093014687cff066e89524ec91",
-      "bytes": 176970,
+      "export_sha256": "1ba3a696a9014a7cae350f5f0fdec214c7019e8ed32a3e5077cc4255053ea778",
+      "bytes": 180340,
       "python_comments_removed": 14,
       "python_docstrings_removed": 9,
       "tool_descriptions_retained": 0,
@@ -4414,8 +4414,8 @@
     {
       "path": "tools/openrouter.py",
       "source_sha256": "756267c2e19482f5445b9cea2de0d13678ec7d7753131331c33ef9f708654749",
-      "export_sha256": "e4f834b5ba00e54717f148e59244dceff976e06dce6141e9040f372f76363c1e",
-      "bytes": 87899,
+      "export_sha256": "63ee84ccb9c18e487c97d5ef203d1209c5034411f48d1bc34ccb203e85773ace",
+      "bytes": 91050,
       "python_comments_removed": 31,
       "python_docstrings_removed": 11,
       "tool_descriptions_retained": 0,
