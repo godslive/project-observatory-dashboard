@@ -91,6 +91,27 @@ memory is a later seam ([agent memory → Lessons](docs/design/AGENT-MEMORY.md#l
 
 ### Changed
 
+- **The engine board is the organization's canonical format** (L-1): `docs/backlog.md` holds its table in one
+  `## Board` section that org-index's register check reads as an allowlisted format, and `tools/check_backlog.py`
+  holds the board to that format, reading the raw bytes as that check does: a CR anywhere, a second or missing
+  `## Board` or one hidden by an HTML block, comment or fence above it, a header or separator not exactly the
+  canonical one, text after the table, an OBS row outside the section, a backslash (an escaped `|`), `<` or an
+  invisible character in a row, two `parent:` tokens in a Source. Above the board, a line starting with `<` opens
+  an HTML block until the next blank line, so `<3 text` right above `## Board` hides it; inline tags mid-line, and a
+  `<`-line that is no tag closed by a blank line, pass. It is stricter than that check in these places, each named
+  in its docstring: any code fence above the board, even closed, and any `<!--`, even mid-line and closed; every
+  Unicode control, format and separator character and every space but U+0020, not a fixed list; the Hangul
+  fillers (U+115F, U+1160, U+3164, U+FFA0), U+034F, the Khmer inherent vowels, the Mongolian and Unicode
+  variation selectors, and unassigned default-ignorable code points (U+2065, U+FFF0–FFF8, U+E0000, …); ids in
+  ASCII digits, `OBS-001` and `OBS-0` refused, `OBS-01` beside `OBS-1` one id written twice; a `parent:` PB id
+  in ASCII digits; `superseded by OBS-n` naming a row spelled exactly so. A Status cell is exactly one of `done`, `done in
+  X.Y.Z`, `done in X.Y.Z (#n)`, `done — merged (#n)`, `done — merged (#n), unreleased`, `cancelled` or
+  `superseded by OBS-n`, or `open`/`blocked` with a note; a closed status takes no note, so 42 rows moved theirs to
+  the Item column ("Outcome:"), `closed` became `superseded by OBS-17`, and OBS-63 reads `done in 0.24.4`. Rows
+  name their package as `parent: PB-nnn`. OBS-56 is done for the estate total, its per-project remainder is
+  OBS-93; OBS-74 credits 0.24.0 with the finding only; OBS-75 is done (the old key was revoked on 2026-10-12);
+  OBS-62 reads `done in 0.24.0 (#206)`, the release its code reached; OBS-92 records the loopback header door.
+
 - **A spend policy's keys share its limit** (ENG-002): `openrouter.py issue-for-policy` gave every `project-key`
   source the whole project limit, so a $40 project with two keys could spend $80. The ceilings of every key the plan
   touches now sum to at most `limitUsd`: an equal split rounded down to the cent by default, `--split REF=USD,…` for
@@ -466,7 +487,8 @@ companion plugin `observatory-log` is unchanged.
   the token names has `credentialSource {kind: project-key, ref: PROJECT/ENV/NAME}`, never read a `.env`, and
   remove the token before the child starts. `slotsRequireGrant` in `config/meter.json`: `when-token` (default
   on the operator's own machines; METER.md M0), `always`, `off`.
-- **The keyserver trusts the delegation token** (OBS-62): with a valid token for the action's scope (`keys.*`,
+- **The keyserver trusts the delegation token** (OBS-62; corrected after release: its code, #206, merged after
+  the v0.23.0 tag and first shipped in 0.24.0, not in this release): with a valid token for the action's scope (`keys.*`,
   `ledger.*`), the journal names the hub's signed caller, principal, chain and grant (`caller_verified: true`).
   `reveal` is never served to a token. `keyserverRequiresDelegation: agents` demands a token from non-page callers.
 - **The agent harness scan** (`integrations.harness`, `sources.harness_root`; off until turned on): what every
