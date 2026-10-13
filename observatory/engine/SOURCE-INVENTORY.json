@@ -349,8 +349,8 @@
       "path": "collectors/scan_machine.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "ea1e4c9fccb353beee9f11ddbd1fd8a350c52ecc64db0fef703dd00c81876c62",
-      "bytes": 30722
+      "export_sha256": "246424171ee8ab6c2f247be65625eb6852c969310cbb790fac96b894fb004155",
+      "bytes": 34989
     },
     {
       "path": "collectors/scan_mcp.py",
@@ -519,22 +519,22 @@
       "path": "dashboard/locales/en.json",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "d739ee5748e1205f48395770e4770b896b6a66ad051f32dc4e0b5d18b16d0771",
-      "bytes": 25634
+      "export_sha256": "1c9b568308d2e1ed062b579992594d9a8cebadbf0ffa647a1cc6d62b78832b8b",
+      "bytes": 25818
     },
     {
       "path": "dashboard/locales/ru.json",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "72103976b5c61d78ece1ecffd46dfb50101c519dcf2e9850ff027718ba063d93",
-      "bytes": 164813
+      "export_sha256": "e83fd3dc2ca474637af879304ab18850d3c719176af0213b78b42f0c06ba2101",
+      "bytes": 165399
     },
     {
       "path": "dashboard/machine_page.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "2f979342f6315788c8c61a43899d6f757792f2eb7b029c96000a0d930d4590a0",
-      "bytes": 18271
+      "export_sha256": "9ba17a4ba1fc675b44c196486f50920bd6817feb0ba0dcc4c340b2501aecd734",
+      "bytes": 19081
     },
     {
       "path": "dashboard/shell.py",
@@ -695,8 +695,8 @@
       "path": "defaults/machine.json",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "1fe4130f7c289cc05d409cd52572f3fa6045dfb262229ed4ceb0e9670edf05fc",
-      "bytes": 3878
+      "export_sha256": "fe73b49edeb45a95c80bdc3f266284448eaaeb61e39d21d3ec493e369eed5581",
+      "bytes": 4169
     },
     {
       "path": "defaults/models.json",
@@ -807,8 +807,8 @@
     {
       "path": "docs/ONBOARDING.md",
       "source_sha256": "4460194f12893e0e451109259d156627aae5bc71e812b0fce2a84e8f69fb3c2c",
-      "export_sha256": "bbb1c09ea8cdb35da6e9a9f1c442ea401854cfc423a3cde2b339c8cc1a624c06",
-      "bytes": 77907,
+      "export_sha256": "c693a702052320752876e61661871a60dc4ef111c3cdce7a67fa8cac13c790d7",
+      "bytes": 78243,
       "upstream_modified": true
     },
     {
@@ -1290,8 +1290,8 @@
       "path": "machine_view.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "44fa1ca529668d382a4e8d9b306b8204e7a04c89546ed8e7e547d18f35d6565b",
-      "bytes": 6168
+      "export_sha256": "a437c95892b942580f1d7151a0d1326e39eec503a345207fd6c27326dd1ab655",
+      "bytes": 7046
     },
     {
       "path": "maintenance.py",
@@ -1324,8 +1324,8 @@
     {
       "path": "mcp/server.py",
       "source_sha256": "7b7f784efa836b3cb47444a837f7c19e42d29f812487f2aede0bfa2092fe6d81",
-      "export_sha256": "95bc795ead845e4355e3de1b786fcf60211c77a4303b05421d9241a75f26fdad",
-      "bytes": 95123,
+      "export_sha256": "7645b2ae9ad600f2b6d0b220bc81ef854e6011b2e53698745d8ef31984a92255",
+      "bytes": 95318,
       "python_comments_removed": 80,
       "python_docstrings_removed": 13,
       "tool_descriptions_retained": 9,
@@ -2426,8 +2426,8 @@
       "path": "tests/test_disk_guard.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "a50bf8c307de06a65a28862c282e22e6d4961cd6e0662bda75646bcc4e7a08cf",
-      "bytes": 51090
+      "export_sha256": "b238d3b2752260a381e4e6c26fa1173664583a5f723558f6f83205e29794c53a",
+      "bytes": 57997
     },
     {
       "path": "tests/test_docs_current.py",
@@ -2872,8 +2872,8 @@
       "path": "tests/test_machine.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "6e89816dce6e4d82940aaa8bacd98c518724e9c73130850202a9fb10b398bc90",
-      "bytes": 38940
+      "export_sha256": "9a288c28e062197dcd74e135d7bfd751558582c6557e26ab959a132c4739c16b",
+      "bytes": 51750
     },
     {
       "path": "tests/test_machine_mcp_inventory.py",
@@ -3986,8 +3986,8 @@
       "path": "tools/cleanup.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "344d7544bd333b609cfadeee84d7a763f7ef2e09f059e49818302d7ceaef9a22",
-      "bytes": 26326
+      "export_sha256": "3cdadd6e36011b1023e3dd34d6e32a308743a99fb5bc9025731e874d2bc50c9a",
+      "bytes": 27817
     },
     {
       "path": "tools/cloudflare.py",

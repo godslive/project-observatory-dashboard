@@ -18,7 +18,7 @@ import tempfile
 import time
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import ANY, call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -129,7 +129,7 @@ class DiskBudget(Base):
     def config(self, **extra):
         places = []
         for name in ("a", "b", "c"):
-            (self.base / name).mkdir()
+            (self.base / name).mkdir(exist_ok=True)
             places.append({"path": str(self.base / name), "kind": "cache", "label": name, "reclaim": "regenerable"})
         (self.home / "config/machine.json").write_text(json.dumps({"every_hours": 12, "disk_budget_seconds": 2,
                                                                    "disk_location_timeout_seconds": 5,
@@ -211,11 +211,11 @@ class ApfsFrees(DiskBudget):
         private = {"clone-a": 0, "clone-b": 0, "own": 300_000, "own-link": 300_000}
         reader = lambda path: private.get(Path(path).name)      # `deep` unread: counts as du would
         blocks = os.lstat(root / "nested" / "deep").st_blocks * 512
-        self.assertEqual(sm.private_kb(root, 30, reader=reader), (300_000 + blocks) // 1024)
+        self.assertEqual(sm.private_kb(root, 30, reader=reader), sm.Private((300_000 + blocks) // 1024))
 
     def test_no_file_answering_is_not_measured_rather_than_zero(self):
         import scan_machine as sm
-        self.assertIsNone(sm.private_kb(self.tree(), 30, reader=lambda path: None))
+        self.assertEqual(sm.private_kb(self.tree(), 30, reader=lambda path: None), sm.Unmeasured("not-applicable"))
 
     def test_a_walk_past_its_time_is_not_measured(self):
         import scan_machine as sm
@@ -225,7 +225,7 @@ class ApfsFrees(DiskBudget):
             (root / f"f{i}").write_bytes(b"z")
         ticks = iter(range(0, 10_000, 5))
         with patch.object(sm.time, "monotonic", side_effect=lambda: next(ticks)):
-            self.assertIsNone(sm.private_kb(root, 2, reader=lambda path: 0))
+            self.assertEqual(sm.private_kb(root, 2, reader=lambda path: 0), sm.Unmeasured("timeout", 2))
 
     @unittest.skipUnless(sys.platform == "darwin", "APFS private size is a macOS attribute")
     def test_a_real_clone_frees_nothing_on_apfs(self):
@@ -243,14 +243,14 @@ class ApfsFrees(DiskBudget):
         # A third file outside the place shares the original's blocks, so neither file in the place
         # is private: the walk reads ~0 where `du` reads 8 MB.
         subprocess.run(["cp", "-c", str(root / "original"), str(self.base / "outside")], check=True)
-        self.assertLess(sm.private_kb(root, 30), 64)
+        self.assertLess(sm.private_kb(root, 30).kb, 64)
         self.assertGreater(sm.size_kb(root, 30), 7000)
 
     def test_the_row_says_what_a_removal_frees_and_keeps_it_when_carried(self):
         import scan_machine as sm
         self.config(disk_budget_seconds=30)
         with patch.object(sm, "size_kb", return_value=2 * 1048576), \
-                patch.object(sm, "private_kb", return_value=209715) as walked:
+                patch.object(sm, "private_kb", return_value=sm.Private(209715)) as walked:
             out = sm.survey_disk(None, force=False)
         self.assertEqual(walked.call_count, 3)
         row = out["locations"][0]
@@ -269,9 +269,142 @@ class ApfsFrees(DiskBudget):
             row = sm.survey_disk(None, force=False)["locations"][0]
         walked.assert_not_called()
         self.assertNotIn("frees_at_least_gb", row)
-        with patch.object(sm, "size_kb", return_value=2 * 1048576), patch.object(sm, "private_kb", return_value=None):
+        with patch.object(sm, "size_kb", return_value=2 * 1048576), \
+                patch.object(sm, "private_kb", return_value=sm.Unmeasured("timeout", 5)):
             row = sm.survey_disk(None, force=True)["locations"][0]
         self.assertNotIn("frees_at_least_gb", row)
+
+    def previous(self, frees_hours_ago: float, measured_hours_ago: float = 13) -> dict:
+        """A survey document whose first place was sized `measured_hours_ago` (due again after 12 h)
+        and walked for its private size `frees_hours_ago`."""
+        from datetime import datetime, timedelta, timezone
+        at = lambda h: (datetime.now(timezone.utc) - timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {"disk": {"locations": [{"path": str(self.base / "a"), "kind": "cache", "label": "a",
+                                        "reclaim": "regenerable", "gb": 2.0, "measured_at": at(measured_hours_ago),
+                                        "frees_at_least_gb": 0.2, "clone_shared_gb": 1.8, "clones_matter": True,
+                                        "frees_measured_at": at(frees_hours_ago)}]}}
+
+    def test_a_reader_sleeping_past_the_deadline_keeps_the_last_figures_and_names_the_place(self):
+        """ENG-006: a private walk that ran out of time returned None, the row lost the figures the
+        last walk had measured, and nothing said so. A place of few, slow files never even
+        reached the deadline check, which ran every 256 entries."""
+        import scan_machine as sm
+        self.config(disk_budget_seconds=30, disk_location_timeout_seconds=1)
+        for i in range(120):
+            (self.base / "a" / f"f{i}").write_bytes(b"z")
+        previous = self.previous(frees_hours_ago=100)
+        slow = lambda path: (time.sleep(0.02), 0)[1]
+        with patch.object(sm, "size_kb", return_value=2 * 1048576), \
+                patch.object(sm, "_private_size_reader", return_value=slow):
+            started = time.monotonic()
+            out = sm.survey_disk(previous, force=True)
+        self.assertLess(time.monotonic() - started, 2.2, "the walk ran past its deadline")
+        row = next(r for r in out["locations"] if r["path"] == str(self.base / "a"))
+        self.assertEqual((row["frees_at_least_gb"], row["clone_shared_gb"], row["clones_matter"]), (0.2, 1.8, True))
+        self.assertEqual(row["frees_measured_at"], previous["disk"]["locations"][0]["frees_measured_at"])
+        self.assertNotEqual(row["measured_at"], row["frees_measured_at"], "du's fresh number is dated on its own")
+        named = [d for d in out.get("degraded") or [] if d["source"] == str(self.base / "a")]
+        self.assertEqual(len(named), 1, out.get("degraded"))
+        self.assertIn("private size not measured within", named[0]["reason"])
+        self.assertIn("the last figures are kept", named[0]["reason"])
+
+    def test_a_second_survey_within_private_every_hours_does_not_walk_again(self):
+        """Clone share changes slowly; the budget goes to `du` of the places that are due. A walk
+        younger than `private_every_hours` (72 by default) is carried with its own date, and a
+        person's `--disk` always walks."""
+        import scan_machine as sm
+        self.config(disk_budget_seconds=30)
+        previous = self.previous(frees_hours_ago=20)
+        with patch.object(sm, "size_kb", return_value=2 * 1048576), \
+                patch.object(sm, "private_kb", return_value=sm.Private(209715)) as walked:
+            out = sm.survey_disk(previous, force=False)
+        self.assertNotIn(call(self.base / "a", ANY), walked.call_args_list, "walked again inside 72 h")
+        self.assertIn(call(self.base / "b", ANY), walked.call_args_list, "a place never walked is walked")
+        row = next(r for r in out["locations"] if r["path"] == str(self.base / "a"))
+        self.assertEqual(row["frees_at_least_gb"], 0.2)
+        self.assertEqual(row["frees_measured_at"], previous["disk"]["locations"][0]["frees_measured_at"])
+        self.assertNotIn("degraded", out)
+        with patch.object(sm, "size_kb", return_value=2 * 1048576), \
+                patch.object(sm, "private_kb", return_value=sm.Private(209715)) as walked:
+            sm.survey_disk(previous, force=True)
+        self.assertIn(call(self.base / "a", ANY), walked.call_args_list, "--disk must walk")
+        self.config(disk_budget_seconds=30, private_every_hours=10)
+        with patch.object(sm, "size_kb", return_value=2 * 1048576), \
+                patch.object(sm, "private_kb", return_value=sm.Private(209715)) as walked:
+            sm.survey_disk(previous, force=False)
+        self.assertIn(call(self.base / "a", ANY), walked.call_args_list, "the hours come from the config")
+
+    def test_a_measured_walk_dates_its_figures_and_not_applicable_is_silent(self):
+        import scan_machine as sm
+        self.config(disk_budget_seconds=30)
+        with patch.object(sm, "size_kb", return_value=2 * 1048576), \
+                patch.object(sm, "private_kb", return_value=sm.Private(209715)):
+            row = sm.survey_disk(None, force=False)["locations"][0]
+        self.assertEqual(row["frees_measured_at"], row["measured_at"])
+        with patch.object(sm, "size_kb", return_value=2 * 1048576), \
+                patch.object(sm, "private_kb", return_value=sm.Unmeasured("not-applicable")):
+            out = sm.survey_disk(self.previous(frees_hours_ago=100), force=True)
+        row = next(r for r in out["locations"] if r["path"] == str(self.base / "a"))
+        self.assertNotIn("frees_at_least_gb", row, "a file system with no private size carries no old figure")
+        self.assertNotIn("degraded", out, "not applicable is not a failure to measure")
+
+    def test_a_carried_split_never_claims_more_than_the_fresh_size(self):
+        """A place that shrank from 13 GB to 0.6 GB kept the old walk's "APFS clones share 12.6 GB".
+        Carried figures are clamped to the fresh `du` size, and `clones_matter` is decided again
+        on the clamped numbers by the same rule a walk uses."""
+        import scan_machine as sm
+        self.config(disk_budget_seconds=30)
+        for floor, shared, want in ((0.4, 12.6, (0.4, 0.2, True)), (0.0, 13.0, (0.0, 0.6, True)),
+                                    (0.55, 12.45, (0.55, 0.05, False))):
+            previous = self.previous(frees_hours_ago=20)
+            previous["disk"]["locations"][0].update(gb=13.0, frees_at_least_gb=floor, clone_shared_gb=shared,
+                                                    clones_matter=True)
+            with patch.object(sm, "size_kb", return_value=int(0.6 * 1048576)), \
+                    patch.object(sm, "private_kb", return_value=sm.Private(1)):
+                out = sm.survey_disk(previous, force=False)
+            row = next(r for r in out["locations"] if r["path"] == str(self.base / "a"))
+            self.assertEqual(row["gb"], 0.6)
+            self.assertEqual((row["frees_at_least_gb"], row["clone_shared_gb"], row["clones_matter"]), want,
+                             f"from {floor}/{shared} GB of 13")
+            self.assertLessEqual(row["frees_at_least_gb"] + row["clone_shared_gb"], row["gb"] + 0.01)
+
+    def test_a_due_walk_the_budget_cannot_fit_is_named(self):
+        """`du` spent the budget, so the private walk that was due never started: the last figures
+        are kept, and the survey says why rather than staying silent."""
+        import scan_machine as sm
+        self.config(disk_budget_seconds=2)
+        previous = self.previous(frees_hours_ago=100, measured_hours_ago=14)
+        # b and c were sized more recently than a, so a is the first place due and the only one sized.
+        for name in ("b", "c"):
+            later = self.previous(frees_hours_ago=100, measured_hours_ago=13)["disk"]["locations"][0]
+            previous["disk"]["locations"].append({**later, "path": str(self.base / name), "label": name})
+        slow_du = lambda path, timeout: (time.sleep(1.4), 2 * 1048576)[1]
+        with patch.object(sm, "size_kb", side_effect=slow_du), patch.object(sm, "private_kb") as walked:
+            out = sm.survey_disk(previous, force=False)
+        self.assertNotIn(call(self.base / "a", ANY), walked.call_args_list)
+        row = next(r for r in out["locations"] if r["path"] == str(self.base / "a"))
+        self.assertEqual(row["frees_at_least_gb"], 0.2)
+        named = [d for d in out.get("degraded") or [] if d["source"] == str(self.base / "a")]
+        self.assertEqual(len(named), 1, out.get("degraded"))
+        self.assertIn("the survey's budget was spent", named[0]["reason"])
+        self.assertIn("the last figures are kept", named[0]["reason"])
+
+    def test_a_place_that_cannot_be_read_is_unmeasured_with_its_reason(self):
+        """A failed `lstat` is not "this file system keeps no private size": it is a place the walk
+        could not open, reported as such and named in the survey."""
+        import scan_machine as sm
+        got = sm.private_kb(self.base / "no-such-place", 30, reader=lambda path: 0)
+        self.assertEqual((got.reason, got.detail), ("unreadable", "FileNotFoundError"))
+        self.config(disk_budget_seconds=30)
+        previous = self.previous(frees_hours_ago=100)
+        with patch.object(sm, "size_kb", return_value=2 * 1048576), \
+                patch.object(sm, "private_kb", return_value=sm.Unmeasured("unreadable", None, "PermissionError")):
+            out = sm.survey_disk(previous, force=True)
+        row = next(r for r in out["locations"] if r["path"] == str(self.base / "a"))
+        self.assertEqual(row["frees_at_least_gb"], 0.2)
+        named = [d for d in out.get("degraded") or [] if d["source"] == str(self.base / "a")]
+        self.assertEqual(len(named), 1, out.get("degraded"))
+        self.assertIn("could not be read (PermissionError)", named[0]["reason"])
 
     def test_clones_are_named_only_when_they_hold_enough(self):
         import scan_machine as sm
@@ -608,6 +741,40 @@ class PageFrees(Base):
             self.assertTrue(got == want, f"{built}→{reader}: " + relocalize.first_difference(got, want))
 
 
+class PageCarried(Base):
+    """K-b and K-c on the page: carried clone figures say when they were measured, and a git
+    survey the deadline cut short says how many checkouts it carried and from when."""
+
+    def test_the_page_dates_carried_figures_and_names_a_partial_git_survey(self):
+        import machine_view, machine_page
+        from i18n import Translator
+        (self.home / "store/raw/machine.json").write_text(json.dumps({
+            "measured_at": "2026-01-01T00:00:00Z", "memory": {}, "processes": {},
+            "disk": {"volume": {"free_gb": 4, "free_percent": 2, "total_gb": 250},
+                     "locations": [{"path": "~/clones", "label": "Clones", "kind": "cache", "reclaim": "regenerable",
+                                    "gb": 13.0, "measured_at": "2026-01-01T00:00:00Z", "frees_at_least_gb": 0.4,
+                                    "clone_shared_gb": 12.6, "clones_matter": True,
+                                    "frees_measured_at": "2025-12-29T08:00:00Z"}]}}))
+        (self.home / "store/raw/git-hygiene.json").write_text(json.dumps({
+            "measured_at": "2026-01-01T00:00:00Z", "partial": True,
+            "checkouts": [{"repository": "example-org/alpha-web", "path": "/x/alpha-web", "default_branch": "main",
+                           "measured_at": "2025-12-30T09:00:00Z", "stale": True, "worktrees": [], "branches": []},
+                          {"repository": "example-org/beta-api", "path": "/x/beta-api", "default_branch": "main",
+                           "measured_at": "2026-01-01T00:00:00Z", "worktrees": [], "branches": []}]}))
+        summary = machine_view.summary()
+        en = machine_page.machine_html({"machine": summary}, Translator("en"))
+        ru = machine_page.machine_html({"machine": summary}, Translator("ru"))
+        self.assertIn("as of 2025-12-29", en)
+        self.assertIn("partial survey: 1 checkout carried from 2025-12-30", en)
+        self.assertIn("2025-12-29", ru)
+        sys.path.insert(0, str(ROOT / "tests"))
+        import relocalize
+        for built, reader in (("en", "ru"), ("ru", "en")):
+            got = relocalize.relocalize({"en": en, "ru": ru}[built], reader)
+            want = {"en": en, "ru": ru}[reader]
+            self.assertTrue(got == want, f"{built}→{reader}: " + relocalize.first_difference(got, want))
+
+
 class Unmeasured(Base):
     def test_nothing_measured_is_never_shown_as_all_clean(self):
         # With no git-hygiene survey and no cleanup plan the page said "Every
@@ -657,6 +824,17 @@ class Tool(Base):
         self.assertEqual(out["processes"]["count"], 30)                            # the total stays whole
         self.assertIn("processes", out["sections"])
         self.assertIn("degraded", out)
+
+    def test_the_overview_says_when_the_git_survey_is_partial(self):
+        """An agent reading the bounded overview sees that some checkouts are carried, not only a
+        person reading the page or an agent asking for the git section in full."""
+        (self.home / "store/raw/git-hygiene.json").write_text(json.dumps({
+            "measured_at": "2026-01-01T00:00:00Z", "partial": True,
+            "checkouts": [{"repository": "example-org/alpha-web", "path": "/x/alpha-web", "default_branch": "main",
+                           "measured_at": "2025-12-30T09:00:00Z", "stale": True, "worktrees": [], "branches": []}]}))
+        out = self.server.observatory_machine()
+        self.assertIs(out["git"]["partial"], True)
+        self.assertEqual(out["git"]["carried"], {"checkouts": 1, "measured_at": "2025-12-30T09:00:00Z"})
 
     def test_a_named_section_is_whole(self):
         out = self.server.observatory_machine(section="processes")
