@@ -609,11 +609,59 @@ project-observatory full cleanup --apply                  # the auto tier, now
 project-observatory full cleanup --apply --include manual # also unique branches and dirty worktrees, archived first
 ```
 
-The manual tier writes a thin git bundle per branch and a patch plus a tarball
-of untracked files per worktree under `<home>/archive/cleanup/<date>/` before
-removing anything. A worktree's patch is re-applied, in check mode, to a scratch
-index of its HEAD first; if git cannot produce it or it does not apply, the
-worktree stays and the run reports it as failed with the reason.
+The manual tier writes a thin git bundle per branch. For each dirty worktree it
+creates a fresh directory under `<home>/archive/cleanup/<date>/`, with
+`tracked.patch` (HEAD to working files), `staged.patch` (HEAD to index),
+`status.txt`, `untracked-manifest.json` and `untracked.tgz`. Both patches must apply
+in check mode to a scratch index of HEAD. The tarball's exact regular-file list,
+sizes, modes and streaming SHA-256 hashes must match the saved manifest. Before
+removal it reads the archive back, refreshes process holders, and rechecks HEAD,
+status, both patches and the untracked listing/content. Changes, unreadable data,
+archive errors or an exhausted inspection budget retain the worktree and report
+failure, naming any partial archive; a retry never overwrites an earlier archive.
+
+Manual archiving permits ordinary files only: nested repositories (including
+submodules and bare repositories), symlinks and special files are retained.
+Ignored files are outside this archive and cause a skip; preserve or move them
+before retrying. Inspection allows 60 seconds (or the remaining run budget),
+10,000 tree entries and 512 MiB of untracked content; each patch also has a
+512 MiB limit. Untracked hashing reads at most 1 MiB at a time. Git patch capture
+and individual filesystem operations are not a strict memory or wall-clock cap.
+These checks are not an atomic filesystem lock: another writer can still change
+a file between its final observation and Git removal. Stop writers before an
+explicit manual cleanup. Coverage: `CleanupNeverLosesWork` in
+`tests/test_git_hardening.py`.
+
+Before both automatic and manual worktree removal, cleanup reads index flags
+before status and again at the removal boundary. `assume-unchanged`,
+`skip-worktree` (including sparse checkouts), unsupported entries or an unreadable
+index cause a skip: Git status and diff can omit changes behind these flags.
+Cleanup does not clear or rewrite the flags. It also verifies the live HEAD's
+retaining branch; a detached HEAD needs an archive ref whose readback equals the
+exact commit. A conflicting ref or a failed creation retains the worktree.
+
+Branch cleanup captures its tip before eligibility checks. A unique branch's
+verified bundle must advertise that exact tip, and the current tip and worktree
+attachments are checked again. Deletion uses Git's expected-old-tip comparison
+with `--no-deref`: a newer commit cannot be deleted by a stale cleanup, and a
+late symbolic-ref conversion cannot redirect deletion to another branch.
+Symbolic branch targets, invalid names and shorthand names are refused during
+eligibility checks; only the three known branch cleanup classes can act. A newly attached worktree
+still has a small final attachment-check/deletion race; concurrent checkout
+writers must be stopped. Each branch bundle gets a new directory. Git branch
+configuration is retained when the ref is deleted. Coverage:
+`CleanupNeverLosesWork` in `tests/test_git_hardening.py`.
+
+The legacy `full cleanup` build-artifact action now reports a skip and asks for
+`full disk-guard` to replan; only the disk guard owns build-output eligibility.
+`CleanupNeverLosesWork.test_legacy_artifact_plan_cannot_delete_newly_tracked_output`
+covers this refusal.
+The `.wrangler` directory can hold local databases and object storage; it is never
+classified as build output, even when an older cleanup configuration lists it.
+Cleanup also retains an ignored artifact parent containing a nested repository or
+local state, and any tree whose contents cannot be fully inspected within its
+bounded check. Symlinks and special files are retained conservatively.
+Regression coverage: `tests/test_disk_guard.py`, `GitTierSafety`.
 
 ### The disk guard
 
@@ -652,6 +700,23 @@ yourself; a worktree with uncommitted edits, or with ignored files that are not 
 database), and a branch with unique commits never do. `project-observatory full cleanup --level low` previews it.
 Every cleanup takes one lock, so the tick, the guard and you never act on the same thing at once. npx's package
 cache and macOS diagnostic reports are swept too.
+
+Temporary cleanup preserves repositories and linked worktrees, including nested
+Git markers, bare repositories and paths beneath a checkout or bare repository.
+Each path plan carries its device/inode identity; a replaced target or a plan
+without that identity is skipped and must be planned again. Build cleanup rechecks checkout
+activity, ignore rules, tracked files and new writes immediately before acting.
+Each path action also makes a fresh, target-scoped holder probe within five
+seconds; unknown, partial or timed-out results skip the path. On POSIX this
+last probe requires `lsof`; without it the plan is available but path removal
+waits. Windows retains the rename probe. See [the preservation contract](https://github.com/passioncode-ai/project-observatory-dashboard/blob/main/docs/design/DISK-GUARD.md#apply-time-preservation-2026-10-13)
+and `tests/test_disk_guard.py::TargetRevalidation` / `FreshTargetProbe`.
+
+Build planning first refreshes explicit Git worktree registrations within a
+reserved budget. Root attempts rotate across passes with a persisted cursor and
+a five-second default quantum. Registration lists membership, not abandoned or
+safe-to-delete status. Failed path-holder readings remain visible per phase.
+See [registration and fairness](https://github.com/passioncode-ai/project-observatory-dashboard/blob/main/docs/design/DISK-GUARD.md#registration-refresh-and-build-root-fairness-obs-87-subset).
 
 **On every system.** What a process holds is read with `lsof` on macOS and Linux, from
 `/proc` on a Linux without `lsof`, and on Windows by renaming the folder aside before
@@ -1172,3 +1237,9 @@ the engine's absolute path and an initialized workspace in **Settings**. The ass
 needs the setup in [Enable background or paid actions deliberately](#enable-background-or-paid-actions-deliberately).
 It runs the installed engine's `full assistant` command; it needs no MCP server and registers none. Details:
 [macOS app](https://github.com/passioncode-ai/project-observatory-dashboard/blob/main/docs/macos/README.md).
+
+Disk-guard measurement limits: unknown swap remains `null` with a reason and
+source time; it is not zero. The largest-file report carries completeness,
+error counts and budget exhaustion. An incomplete empty scan is shown as an
+incomplete measurement. The MCP overview exposes `guard.largeFilesCoverage`
+beside its bounded file list. See [measurement coverage](https://github.com/passioncode-ai/project-observatory-dashboard/blob/main/docs/design/DISK-GUARD.md#measurement-coverage-obs-87-subset).

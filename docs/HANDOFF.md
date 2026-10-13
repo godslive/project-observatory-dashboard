@@ -17,6 +17,17 @@ expectation. It changes test evidence and documentation, not the published engin
 
 ## Latest run
 
+[2026-10-13 — Cleanup recovery](runs/2026-10-13-cleanup-recovery/README.md):
+independent source acceptance for preservation, archive/ref/index revalidation,
+partial receipts and registered-root coverage. Next: required integration checks
+and installed acceptance; OBS-87 remaining coverage is explicit.
+
+[2026-10-13 — Board recovery](runs/2026-10-13-board-recovery/README.md): the OBS register
+is usable, stale statuses are reconciled, all previous IDs survive, and the live-board test
+is required. Next: independently review and integrate the board change, then validate the
+separate cleanup/runner candidates on their final commits; OBS-80 through OBS-87 retain the
+planned and newly identified work.
+
 [2026-10-12 — Russian copy pass](runs/2026-10-12-ru-copy-pass/README.md): the dashboard, Mac and
 desktop apps' Russian rewritten to one vocabulary and plain syntax, copy only. Next task there: a
 native reader confirms the terms the brand pack lacks.
