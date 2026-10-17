@@ -20,6 +20,16 @@ while the major version is 0, a minor release may change behaviour and says so h
   and refuses fetched bytes that are not the named blob.
   A relay's hello is checked before anything is signed (its origin, a 32-byte nonce), and nothing a relay sends
   ends the reconnect loop. NODE.md states the stage-1 threat model.
+- **The node's estate record** (OBS-109). A node verifies a revision of the person's estate record offline — its
+  digest, its chain to the parent, the passkey assertion over its challenge and the record's own rules — before it
+  believes any machine the record lists, and follows the signed revocation delta and heartbeat: after 72 hours
+  without a fresh heartbeat it refuses what other machines send.
+- **The node's secret envelope** (OBS-113). A machine seals a secret to another machine's key-agreement key (HPKE,
+  RFC 9180) and signs it; the target opens it only when the estate record lets the sender hold that slot and the
+  envelope is not older than the last one it opened.
+- **`project-observatory full node`** (OBS-114). `--init` creates this machine's device keys for the agent network
+  and prints the device id and public keys an enrollment needs; `--show` prints them again. Private keys never leave
+  their owner-only files, and a key is never replaced.
 
 ### Documentation
 
