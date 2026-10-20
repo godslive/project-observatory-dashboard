@@ -117,6 +117,12 @@ meter sets none: trusting whichever key signed would be the forgery this fix clo
 
 ### Added
 
+- **The Cloudflare door issues a cache-purge token for one zone** (`issue --preset cache-purge --zone <zone> --vault
+  PROJECT/ENV/NAME`): `Zone Read` and `Cache Purge` on that zone only, named after the zone and the slot. Listing a
+  zone proves nothing about purging it, so the proof is a purge of one URL the site does not serve
+  (`/.well-known/observatory-purge-probe`), never `purge_everything`; a zone preset's probe body may now name the zone.
+  First holder: a landing site that purges its zone after each CI deploy.
+
 - **A daily encrypted backup of this machine's agent setup, and a restore onto a new machine** (OBS-157).
   One `machine-<stamp>-<id>.obmachine` per run goes to the same backups root as the workspace snapshots, in the same
   `OBSENC1` format and under the same passphrase: the Claude Code and Codex configuration, Git, SSH and shell
