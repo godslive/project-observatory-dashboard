@@ -117,6 +117,14 @@ meter sets none: trusting whichever key signed would be the forgery this fix clo
 
 ### Added
 
+- **A Cloudflare preset that onboards a domain to Email Sending** (`email-sending-domain`). Until a zone's domain is
+  onboarded, an account delivers only to its verified Email Routing destinations and refuses every other recipient
+  with `10203 email.sending_disabled`, whatever the Workers plan. Onboarding is a zone endpoint
+  (`POST /zones/{zone}/email/sending/subdomains`) that refused the account-wide token shape with 401. The preset grants
+  Zone Read and DNS Write on the zone's own resource plus Email Sending on its account, as two policies, verifies the
+  new value by listing the zone's sending subdomains, and delivers it to a vault slot:
+  `cloudflare.py issue --preset email-sending-domain --zone example.com --vault PROJECT/ENV/NAME`.
+
 - **The Cloudflare door issues a cache-purge token for one zone** (`issue --preset cache-purge --zone <zone> --vault
   PROJECT/ENV/NAME`): `Zone Read` and `Cache Purge` on that zone only, named after the zone and the slot. Listing a
   zone proves nothing about purging it, so the proof is a purge of one URL the site does not serve

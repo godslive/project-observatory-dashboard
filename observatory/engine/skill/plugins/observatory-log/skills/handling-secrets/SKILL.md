@@ -236,6 +236,10 @@ An application that sends transactional email through Cloudflare Email Service
 gets `cloudflare.py issue --preset email-send --account <slug> --vault
 <project>/<env>/<NAME>`: Email Sending Write and Read on that one account (the
 group exists at account level only), verified by listing its suppressions.
+Until a domain is onboarded to Email Sending, that token reaches only verified routing
+destinations; onboarding one zone's domain is `--preset email-sending-domain --zone <zone>`:
+Zone Read and DNS Write on that zone plus Email Sending on its account, verified by listing
+the zone's sending subdomains.
 Adding an Email Routing rule in one zone — one address to a Worker — is
 `--preset email-routing --zone <zone>`, and deploying that Worker with its KV
 namespace is `--preset workers-edit --account <slug>`; putting a Worker in front of
