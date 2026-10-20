@@ -195,6 +195,11 @@ meter sets none: trusting whichever key signed would be the forgery this fix clo
 
 ### Changed
 
+- **Dependencies:** `google-auth` 2.61.0 (from 2.59.1) in the `[full]` extra, with `requirements-full.lock` and its
+  engine copy `observatory/engine/requirements-full.lock` moved to the same pin, so `pip install -c
+  requirements-full.lock '.[full]'` resolves (supersedes Dependabot #283, which bumped `pyproject.toml` alone). No other
+  pin moves.
+
 - **The SessionStart hook asks Fabric which project a session's folder is**, then the contract's folder rules
   while Fabric is not running, and only then the older registry match. Observatory no longer decides a session's
   project on its own rules first.
