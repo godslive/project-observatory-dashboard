@@ -69,6 +69,76 @@ state markers, symlinks, special files, read errors and exhausted time/entry bud
 all retain it. The disk guard shares the entry predicate in its own bounded walk.
 This observation does not lock out an adversarial writer between a check and removal.
 
+## Live state under cache roots (OBS-203, 2026-10-22)
+
+`~/Library/Caches` and `~/.cache` are cache roots, so a folder in them was removable once nobody
+had touched or held it for `cache_days`. An agent service may keep in-flight jobs there, and on
+2026-10-20 one service's job workspaces and runner permissions in its own folder there were lost
+(this engine's journals hold no removal in that window, but the guard would have planned one).
+Until then only a person's `guard.cache_keep` list protected such a folder. Now a service says it
+itself, in one of two ways:
+
+- **A marker file**, `.observatory-keep` (`cleanup_safety.KEEP_MARKER`). At the top of a folder,
+  `disk_guard.keep_reason` keeps it before any walk. Anywhere deeper, the shared entry predicate
+  refuses the tree, so the guard's walk and `cleanup.py`'s build-output walk
+  (`protected_tree_reason`) keep it too.
+- **A Fabric service descriptor.** The contract's descriptor already declares `paths.data`,
+  `paths.config`, `paths.cache` and `paths.logs`; no new field was added.
+  `disk_guard.service_state` reads the local descriptors (`fabric_service.services_dir()`,
+  remote ones skipped) and treats `data`, `config` and `logs` as state: a folder that is such a
+  path, holds one or lies inside one is kept. `paths.cache` stays removable, because the contract
+  calls it a cache; a service that keeps live work there writes the marker. Paths compare without
+  case on macOS and Windows, lexically and resolved; a declared path in a privacy-guarded place is
+  not resolved.
+
+**Which classes.** The planners of cache folders, build output, temporary entries and Trash consult
+both, and list what they keep in the report. `act` checks the marker again right before every path
+removal, browser clones included, against the descriptors as last read (below). The tools' own
+cache commands (`uv cache prune` and the like) remove nothing by path and are not covered.
+
+**When the descriptors are read.** Once after a run takes the lock, for planning, with a deadline
+of a tenth of the run's time (at most 30 seconds); the time is in the report's
+`phases.service-state`. Then once more at the start of each class's removal phase, when that class
+has something to remove (deadline a twentieth of what is left, at most 10 seconds), so a service
+installed while the run planned is honoured before anything of that class goes. They are NOT read
+again before each single removal: a service installed during one class's removals is honoured from
+the next class or run. A marker is honoured at once. `act` called on its own reads them itself. The
+report's `service_state` gives `complete`, the number of paths, of refused ones, and
+`unknown_services`. At most 256 declared paths are resolved; past that the reading is incomplete.
+
+**When the descriptors folder cannot be read.** No services folder means no Fabric on the machine:
+nothing is degraded. When the folder itself cannot be read (it or its parent unreadable, the path
+not a folder, or the read's deadline reached), that is named in `degraded` (`fabric-descriptors`),
+and the cache-folder and temporary classes remove nothing that run, each saying so in `degraded`;
+`act` refuses those two classes too. The folder is listed with `os.scandir`, because `Path.is_dir`
+and `Path.glob` report an unreadable folder as an empty one, which once read as "no service".
+
+**One broken descriptor makes only its own service unknown.** Each file is opened without following
+a link and without waiting by `osprivacy.read_regular` (`O_NOFOLLOW`, `O_NONBLOCK` on POSIX; on
+Windows a link is refused by `lstat` first), must be a regular file, and is read up to 1 MB: a FIFO named `*.json` once blocked the
+guard inside the cleanup lock, and a link to `/dev/zero` was read without end. A file that fails
+any of that, is not JSON (deep nesting included: its `RecursionError` once escaped the run), is not
+an object, or declares a path breaking the contract's `localPath` (not a string, not absolute or
+under `~`, longer than 1,024 characters, or holding a NUL character) is named in `degraded`, and
+its service id is taken from the file name `<id>.<instance>.json`. For that run, the folders named
+for that id are kept with the reason "descriptor could not be read": the folder name is the id, or
+starts with the id and `.`, `-` or `_`, or is a reverse-DNS name whose last part is the id, case
+ignored. An id shorter than 3 characters keeps nothing (`co` would match most of a cache root);
+it is named only. Both classes run for everything else, so one broken file cannot stop the guard on
+every run until a person removes it. A file whose name matches no service is named and keeps
+nothing.
+
+**A declaration that is too wide, or foreign, is refused.** A declared state path that is or holds a
+cache root, a temporary root, the Trash, a checkout the build-output class plans from, `~/Library`,
+`~/Library/Application Support`, the home folder or a filesystem root would keep other programs'
+data forever. It is ignored, and `degraded` names the service and the path. A folder inside
+Application Support (`~/Library/Application Support/<service>`) is honoured. A path in another
+operating system's grammar (a drive letter on macOS or Linux) names nothing here and is named in
+`degraded` the same way.
+
+The report carries `kept` (class, path, reason; at most 200), and the Machine page shows it as
+"Kept by the guard". `tests/test_disk_guard.py::LiveStateUnderCacheRoots` pins each rule.
+
 ## Not done here, and why
 
 - A person's `full update --apply` started while a pass runs is refused by the snapshot's

@@ -1235,6 +1235,18 @@ under `guard`:
 Application and tool cache folders (`~/Library/Caches`, `~/.cache`) untouched for 7 / 2 / 1 days go
 too, except the downloaded browsers and SDKs a tool does not fetch again by itself (`cache_keep`:
 Playwright, camoufox, puppeteer, cargo-xwin and others) and `uv`, which has its own command.
+A folder an agent service uses for live state stays at every pressure, in every class that removes
+a path (cache folders, build output, temporary entries, Trash): the service writes an empty
+`.observatory-keep` file at its top, or declares the folder as state (`paths.data`, `paths.config`
+or `paths.logs`) in its Fabric service descriptor. The report and the Machine page list each such
+folder under "Kept by the guard" with the reason. A descriptor's `paths.cache` stays removable:
+live work there needs the marker. A declaration that covers a whole cache or temporary root, the
+Trash, a checkout, `~/Library` or its `Application Support`, the home folder or the disk, or that is
+written for another operating system, is ignored and named in `degraded`. When the descriptors folder cannot be
+read, no cache folder or temporary entry is removed that run, and `degraded` says why; when one
+descriptor `<id>.<instance>.json` cannot be read, only the folders named for that id (the id, the
+id followed by `.`, `-` or `_`, or a reverse-DNS name ending in it; ids of at least 3 characters)
+are kept that run.
 Browser code-sign clones a crashed browser left behind go at any pressure, and
 the cleanup's own git auto tier runs after them — with its thresholds lowered by the same
 pressure (`pressure` in `config/cleanup.json`): a clean worktree or a merged branch nobody

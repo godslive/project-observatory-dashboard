@@ -428,6 +428,484 @@ class CacheDirs(Base):
         self.assertEqual(len(self.g.plan_cache_dirs(cfg, "low", self.free(), time.time())), 1)
 
 
+
+class LiveStateUnderCacheRoots(Base):
+    """OBS-203. A cache root holds regenerable folders, but an agent service may keep its
+    in-flight jobs in its own folder there. The service says so with a marker file at the
+    top of the folder, or by declaring the path as state in its Fabric descriptor; either
+    keeps the folder out of every tier, and the report names it with the reason."""
+
+    def setUp(self):
+        super().setUp()
+        self.caches = self.base / "Caches"
+        self.services = self.base / "services"
+        self.services.mkdir()
+        env = patch.dict(os.environ, {"FABRIC_SERVICES_DIR": str(self.services)})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def folder(self, name, *, marker=False, days=9):
+        d = self.caches / name
+        (d / "jobs" / "job-1").mkdir(parents=True)
+        (d / "jobs" / "job-1" / "workspace.bin").write_bytes(b"x" * 10)
+        if marker:
+            (d / self.g.KEEP_MARKER).write_text("")
+        age(d, days)
+        return d
+
+    def descriptor(self, name, paths_, placement=None):
+        doc = {"protocol": "fabric-service/0.1", "id": name, "instance": "default", "name": name,
+               "origin": "http://127.0.0.1:1", "auth": {"tokenFile": str(self.base / "token")},
+               "lifecycle": {"manager": "none"}, "installedAt": "2026-10-20T00:00:00Z",
+               "installedBy": "test", "paths": paths_}
+        if placement:
+            doc["placement"] = placement
+        (self.services / f"{name}.default.json").write_text(json.dumps(doc))
+
+    def plan(self, kept=None, degraded=None, level="normal"):
+        cfg = self.cfg(cache_roots=[str(self.caches)], cache_keep=[])
+        return self.g.plan_cache_dirs(cfg, level, self.free(), time.time(), None, degraded, kept)
+
+    def test_the_marker_file_keeps_a_folder_and_the_report_says_why(self):
+        self.folder("svc-jobs", marker=True)
+        self.folder("com.example.editor")
+        age(self.caches, 9)
+        kept = []
+        plan = self.plan(kept)
+        self.assertEqual([Path(a["target"]).name for a in plan], ["com.example.editor"])
+        self.assertEqual([(Path(k["target"]).name, k["class"]) for k in kept], [("svc-jobs", "cache-dir")])
+        self.assertIn(".observatory-keep", kept[0]["reason"])
+
+    def test_a_marker_deeper_in_the_folder_keeps_it_too(self):
+        d = self.folder("vendor")
+        (d / "jobs" / self.g.KEEP_MARKER).write_text("")
+        age(d, 9)
+        self.assertEqual(self.plan(), [])
+
+    def test_a_marker_keeps_the_folder_at_every_pressure(self):
+        self.folder("svc-jobs", marker=True, days=40)
+        for level in self.g.LEVELS:
+            self.assertEqual(self.plan(level=level), [], level)
+
+    def test_a_marker_written_after_the_plan_stops_the_removal(self):
+        d = self.folder("svc-jobs")
+        plan = self.plan()
+        self.assertEqual(len(plan), 1)
+        (d / self.g.KEEP_MARKER).write_text("")
+        age(d, 9)
+        rec = self.g.act(plan[0], self.free())
+        self.assertEqual(rec["result"], "skipped")
+        self.assertIn(".observatory-keep", rec["reason"])
+        self.assertTrue((d / "jobs" / "job-1" / "workspace.bin").exists())
+
+    def test_a_state_path_a_descriptor_declares_keeps_its_folder(self):
+        self.folder("svc-a")                              # paths.data is the folder itself
+        self.folder("vendor")                             # paths.config is inside this folder
+        self.folder("svc-c")                              # a log file inside it
+        self.folder("other")
+        self.descriptor("svc-a", {"data": str(self.caches / "svc-a"), "logs": []})
+        self.descriptor("svc-b", {"data": str(self.base / "elsewhere"),
+                                  "config": str(self.caches / "vendor" / "jobs"), "logs": []})
+        self.descriptor("svc-c", {"data": str(self.base / "elsewhere-c"),
+                                  "logs": [str(self.caches / "svc-c" / "jobs" / "run.log")]})
+        kept = []
+        plan = self.plan(kept)
+        self.assertEqual([Path(a["target"]).name for a in plan], ["other"])
+        reasons = {Path(k["target"]).name: k["reason"] for k in kept}
+        self.assertEqual(sorted(reasons), ["svc-a", "svc-c", "vendor"])
+        self.assertIn("svc-a.default", reasons["svc-a"])
+        self.assertIn("paths.data", reasons["svc-a"])
+        self.assertIn("paths.config", reasons["vendor"])
+        self.assertIn("paths.logs", reasons["svc-c"])
+
+    def test_a_declared_path_inside_a_cache_root_protects_exactly_that_folder(self):
+        self.folder("svc-a")
+        self.folder("neighbour")
+        self.descriptor("svc-a", {"data": str(self.caches / "svc-a" / "jobs"), "logs": []})
+        kept, degraded = [], []
+        self.assertEqual([Path(a["target"]).name for a in self.plan(kept, degraded)], ["neighbour"])
+        self.assertEqual([Path(k["target"]).name for k in kept], ["svc-a"])
+        self.assertFalse([d for d in degraded if d.get("source") == "fabric-descriptors"])
+
+    def refused(self, declared):
+        """A declared state path that covers a whole root, the home folder or the disk."""
+        self.folder("one")
+        self.descriptor("svc-wide", {"data": declared, "logs": []})
+        kept, degraded = [], []
+        plan = self.plan(kept, degraded)
+        self.assertEqual([Path(a["target"]).name for a in plan], ["one"], declared)
+        self.assertEqual(kept, [])
+        rows = [d for d in degraded if d.get("source") == "fabric-descriptors"]
+        self.assertEqual(len(rows), 1, declared)
+        self.assertIn("svc-wide.default", rows[0]["reason"])
+        self.assertEqual(rows[0]["path"], declared)
+
+    def test_a_declared_path_that_is_a_cache_root_is_refused_and_named(self):
+        self.refused(str(self.caches))
+
+    def test_a_declared_path_that_holds_a_temporary_root_is_refused(self):
+        self.refused(str(self.t1.parent))
+
+    def test_a_declared_home_folder_is_refused(self):
+        self.refused("~/")
+
+    def test_a_declared_filesystem_root_is_refused(self):
+        self.refused(os.path.abspath(os.sep))
+
+    def unreadable(self, folder):
+        """The services folder, or its parent, cannot be read: what a descriptor there
+        protects is unknown, so no cache folder or temporary entry goes this run."""
+        self.folder("svc-a")
+        (self.t1 / "scratch").mkdir()
+        age(self.t1, 9)
+        self.descriptor("svc-a", {"data": str(self.caches / "svc-a"), "logs": []})
+        os.chmod(folder, 0)
+        try:
+            if os.access(folder, os.R_OK):
+                self.skipTest("this account reads a folder of mode 000 (an administrator)")
+            degraded = []
+            self.assertEqual(self.plan(degraded=degraded), [])
+            self.assertEqual(self.g.plan_temp(self.cfg(), "normal", self.free(), time.time(), None, degraded), [])
+            self.assertTrue([d for d in degraded if d.get("source") == "fabric-descriptors"])
+            self.assertEqual(sorted({d["source"] for d in degraded if "descriptors could not" in d.get("reason", "")
+                                     and d["source"] != "fabric-descriptors"}), ["cache-dir", "temp"])
+            plan = [{"class": "cache-dir", "target": str(self.caches / "svc-a"),
+                     "identity": self.identity(self.caches / "svc-a"), "cutoff": time.time()}]
+            rec = self.g.act(plan[0], self.free())
+            self.assertEqual(rec["result"], "skipped")
+        finally:
+            os.chmod(folder, 0o700)
+        self.assertTrue((self.caches / "svc-a" / "jobs").exists())
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX modes")
+    def test_an_unreadable_services_folder_removes_nothing_it_could_protect(self):
+        self.unreadable(self.services)
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX modes")
+    def test_an_unreadable_parent_of_the_services_folder_removes_nothing_it_could_protect(self):
+        parent = self.base / "fabric"
+        self.services = parent / "services"
+        self.services.mkdir(parents=True)
+        with patch.dict(os.environ, {"FABRIC_SERVICES_DIR": str(self.services)}):
+            self.unreadable(parent)
+
+    def test_no_fabric_on_the_machine_is_not_degraded(self):
+        self.folder("one")
+        degraded = []
+        with patch.dict(os.environ, {"FABRIC_SERVICES_DIR": str(self.base / "absent" / "services")}):
+            self.assertEqual(len(self.plan(degraded=degraded)), 1)
+        self.assertEqual(degraded, [])
+
+    def test_a_deep_marker_is_listed_as_kept(self):
+        d = self.folder("vendor")
+        (d / "jobs" / self.g.KEEP_MARKER).write_text("")
+        age(d, 9)
+        kept = []
+        self.assertEqual(self.plan(kept), [])
+        self.assertEqual([(Path(k["target"]).name, k["reason"]) for k in kept], [("vendor", self.g.KEEP_REASON)])
+
+    def test_trash_honours_the_marker_and_the_descriptors(self):
+        trash = self.base / ".Trash"
+        for name in ("marked", "declared", "plain"):
+            (trash / name).mkdir(parents=True)
+        (trash / "marked" / self.g.KEEP_MARKER).write_text("")
+        self.descriptor("svc-t", {"data": str(trash / "declared"), "logs": []})
+        kept = []
+        with patch.object(self.g, "trash_dirs", return_value=[str(trash)]):
+            plan = self.g.plan_trash(self.cfg(), "normal", time.time() + 40 * DAY, [], kept=kept)
+        self.assertEqual([Path(a["target"]).name for a in plan], ["plain"])
+        self.assertEqual(sorted(Path(k["target"]).name for k in kept), ["declared", "marked"])
+
+    def test_build_output_honours_the_descriptors(self):
+        target = self.base / "repo" / "node_modules"
+        target.mkdir(parents=True)
+        self.descriptor("svc-b", {"data": str(target / "cache"), "logs": []})
+        state = self.g.service_state(self.cfg(), [])
+        self.assertIn("svc-b.default", self.g.keep_reason(str(target), state))
+
+    def test_the_descriptors_are_read_once_per_run(self):
+        self.folder("svc-jobs", marker=True)
+        cfg = self.cfg(cache_roots=[str(self.caches)], cache_keep=[])
+        real = self.g.service_state
+        with patch.object(self.g, "load_config", return_value=cfg), \
+                patch.object(self.g, "service_state", side_effect=real) as read, \
+                patch.object(self.g.Holders, "take", return_value=self.free()), \
+                patch.object(self.g, "refresh", return_value="fresh"), \
+                patch.object(self.g, "large_files", return_value=None), \
+                patch.object(self.g, "running", return_value=False):
+            doc = self.g.run(["--apply", "--level", "critical"])
+        self.assertEqual(read.call_count, 1)
+        self.assertIn("service-state", doc["phases"])
+        self.assertTrue(doc["service_state"]["complete"])
+
+    def test_a_declared_cache_path_stays_regenerable(self):
+        # The contract's own word: `paths.cache` is a cache. Live state there needs the marker.
+        self.folder("svc-a")
+        self.descriptor("svc-a", {"data": str(self.base / "elsewhere"), "cache": str(self.caches / "svc-a"),
+                                  "logs": []})
+        self.assertEqual([Path(a["target"]).name for a in self.plan()], ["svc-a"])
+
+    def test_a_descriptor_that_appears_after_the_plan_stops_the_removal(self):
+        self.folder("svc-a")
+        plan = self.plan()
+        self.descriptor("svc-a", {"data": str(self.caches / "svc-a"), "logs": []})
+        rec = self.g.act(plan[0], self.free())
+        self.assertEqual(rec["result"], "skipped")
+        self.assertIn("svc-a.default", rec["reason"])
+        self.assertTrue((self.caches / "svc-a").exists())
+
+    def test_a_remote_descriptor_declares_nothing_here(self):
+        self.folder("svc-a")
+        self.descriptor("svc-a", {"data": str(self.caches / "svc-a"), "logs": []}, placement="remote")
+        self.assertEqual(len(self.plan()), 1)
+
+    def test_an_unreadable_descriptor_is_named_in_degraded(self):
+        self.folder("svc-a", marker=True)
+        (self.services / "broken.default.json").write_text("{not json")
+        degraded = []
+        self.plan(degraded=degraded)
+        rows = [d for d in degraded if d.get("source") == "fabric-descriptors"]
+        self.assertEqual(len(rows), 1)
+        self.assertIn("broken.default.json", rows[0]["path"])
+
+    def scoped(self, write):
+        """One unreadable descriptor named `svc-j.default.json`: only ITS service is unknown.
+        Folders whose name holds its id (any case) are kept this run; the rest still go."""
+        self.folder("svc-j-jobs")
+        self.folder("other")
+        (self.t1 / "SVC-J-scratch").mkdir()
+        (self.t1 / "plain").mkdir()
+        age(self.t1, 9)
+        write(self.services / "svc-j.default.json")
+        kept, degraded = [], []
+        self.assertEqual([Path(a["target"]).name for a in self.plan(kept, degraded)], ["other"])
+        temp = self.g.plan_temp(self.cfg(), "normal", self.free(), time.time(), None, degraded, kept)
+        self.assertEqual([Path(a["target"]).name for a in temp], ["plain"])
+        self.assertEqual(sorted(Path(k["target"]).name for k in kept), ["SVC-J-scratch", "svc-j-jobs"])
+        self.assertTrue(all("svc-j" in k["reason"] and "descriptor" in k["reason"] for k in kept))
+        rows = [d for d in degraded if d.get("source") == "fabric-descriptors"]
+        self.assertEqual([Path(d["path"]).name for d in rows], ["svc-j.default.json"])
+        self.assertFalse([d for d in degraded if d.get("reason") == self.g.UNKNOWN_STATE])
+        rec = self.g.act({"class": "cache-dir", "target": str(self.caches / "svc-j-jobs"),
+                          "identity": self.identity(self.caches / "svc-j-jobs"), "cutoff": time.time()}, self.free())
+        self.assertEqual(rec["result"], "skipped")
+
+    def test_a_descriptor_that_is_not_json_keeps_only_its_own_service(self):
+        self.scoped(lambda f: f.write_text("{not json"))
+
+    def test_a_descriptor_that_is_not_an_object_keeps_only_its_own_service(self):
+        self.scoped(lambda f: f.write_text("[1, 2]"))
+
+    def test_a_folder_named_like_a_descriptor_keeps_only_its_own_service(self):
+        self.scoped(lambda f: f.mkdir())
+
+    def test_a_declared_path_with_a_null_character_keeps_only_its_own_service(self):
+        def write(f):
+            f.write_text(json.dumps({"protocol": "fabric-service/0.1", "id": "svc-j", "instance": "default",
+                                     "paths": {"data": "/tmp/a\u0000b", "logs": []}}))
+        self.scoped(write)
+
+    def test_a_relative_declared_path_keeps_only_its_own_service(self):
+        def write(f):
+            f.write_text(json.dumps({"protocol": "fabric-service/0.1", "id": "svc-j", "instance": "default",
+                                     "paths": {"data": "relative/state", "logs": []}}))
+        self.scoped(write)
+
+    def test_a_null_character_does_not_stop_a_run(self):
+        (self.services / "svc-j.default.json").write_text(json.dumps(
+            {"id": "svc-j", "instance": "default", "paths": {"data": "/tmp/a\u0000b", "logs": []}}))
+        cfg = self.cfg(cache_roots=[str(self.caches)], cache_keep=[])
+        with patch.object(self.g, "load_config", return_value=cfg), \
+                patch.object(self.g.Holders, "take", return_value=self.free()), \
+                patch.object(self.g, "refresh", return_value="fresh"), \
+                patch.object(self.g, "large_files", return_value=None), \
+                patch.object(self.g, "running", return_value=False):
+            doc = self.g.run(["--level", "critical"])
+        self.assertTrue(doc["service_state"]["complete"])
+        self.assertEqual(doc["service_state"]["unknown_services"], ["svc-j"])
+
+    def test_a_deeply_nested_descriptor_keeps_only_its_own_service(self):
+        self.scoped(lambda f: f.write_text("[" * 200000))
+
+    def test_a_deeply_nested_descriptor_does_not_stop_a_run(self):
+        (self.services / "svc-j.default.json").write_text("[" * 200000)
+        cfg = self.cfg(cache_roots=[str(self.caches)], cache_keep=[])
+        with patch.object(self.g, "load_config", return_value=cfg), \
+                patch.object(self.g.Holders, "take", return_value=self.free()), \
+                patch.object(self.g, "refresh", return_value="fresh"), \
+                patch.object(self.g, "large_files", return_value=None), \
+                patch.object(self.g, "running", return_value=False):
+            doc = self.g.run(["--level", "critical"])
+        self.assertEqual(doc["service_state"]["unknown_services"], ["svc-j"])
+
+    def test_an_oversized_descriptor_keeps_only_its_own_service(self):
+        def write(f):
+            with open(f, "wb") as fh:
+                fh.write(b'{"id": "svc-j", "pad": "')
+                fh.write(b"x" * (self.g.DESCRIPTOR_MAX_BYTES + 10))
+                fh.write(b'"}')
+        self.scoped(write)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFOs")
+    def test_a_fifo_named_like_a_descriptor_is_not_waited_on(self):
+        self.scoped(os.mkfifo)
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX device files")
+    def test_a_link_to_a_device_is_not_read(self):
+        self.scoped(lambda f: f.symlink_to(os.devnull if not os.path.exists("/dev/zero") else "/dev/zero"))
+
+    @unittest.skipIf(sys.platform == "win32", "symlinks need a privilege there")
+    def test_a_link_to_a_large_file_is_not_read(self):
+        big = self.base / "big.json"
+        with open(big, "wb") as fh:
+            fh.write(b"[" + b"0," * (self.g.DESCRIPTOR_MAX_BYTES // 2 + 10) + b"0]")
+        self.scoped(lambda f: f.symlink_to(big))
+
+    def test_a_short_service_id_keeps_nothing(self):
+        # An id of two characters would match most of a cache root: named only.
+        self.folder("co.example.app")
+        self.folder("cocoa-tool")
+        (self.services / "co.default.json").write_text("{not json")
+        kept, degraded = [], []
+        self.assertEqual(len(self.plan(kept, degraded)), 2)
+        self.assertEqual(kept, [])
+        self.assertEqual([Path(d["path"]).name for d in degraded if d.get("source") == "fabric-descriptors"],
+                         ["co.default.json"])
+
+    def test_an_unknown_service_keeps_only_folders_named_for_it(self):
+        for name in ("abc", "ABC.cache", "abc-jobs", "abc_runs", "com.example.abc", "abcdef", "xabc", "com.abc.tool"):
+            self.folder(name)
+        (self.services / "abc.default.json").write_text("{not json")
+        kept = []
+        planned = sorted(Path(a["target"]).name for a in self.plan(kept))
+        self.assertEqual(planned, ["abcdef", "com.abc.tool", "xabc"])
+        self.assertEqual(sorted(Path(k["target"]).name for k in kept),
+                         ["ABC.cache", "abc", "abc-jobs", "abc_runs", "com.example.abc"])
+
+    def test_a_declared_trash_application_support_or_library_is_refused(self):
+        for declared in ("~/.Trash", "~/Library", "~/Library/Application Support"):
+            with self.subTest(declared=declared):
+                for f in self.services.iterdir():
+                    f.unlink()
+                degraded = []
+                self.descriptor("svc-wide", {"data": declared, "logs": []})
+                state = self.g.service_state(self.cfg(cache_roots=[str(self.caches)]), degraded)
+                self.assertEqual(state["paths"], [])
+                self.assertEqual([d["path"] for d in degraded if d.get("source") == "fabric-descriptors"], [declared])
+
+    def test_a_declared_application_support_subfolder_is_honoured(self):
+        degraded = []
+        self.descriptor("svc-a", {"data": "~/Library/Application Support/svc-a", "logs": []})
+        state = self.g.service_state(self.cfg(cache_roots=[str(self.caches)]), degraded)
+        self.assertEqual(len(state["paths"]), 1)
+        self.assertEqual(degraded, [])
+
+    def test_a_declared_checkout_root_is_refused(self):
+        repo = self.base / "repo"
+        repo.mkdir()
+        degraded = []
+        self.descriptor("svc-wide", {"data": str(self.base / "repo"), "logs": []})
+        with patch.object(self.g, "checkouts", return_value=[str(repo)]):
+            state = self.g.service_state(self.cfg(cache_roots=[str(self.caches)]), degraded)
+        self.assertEqual(state["paths"], [])
+        self.assertEqual(len([d for d in degraded if d.get("source") == "fabric-descriptors"]), 1)
+
+    def test_another_systems_path_is_named_not_dropped(self):
+        other = "/srv/svc-a" if sys.platform == "win32" else "C:\\svc-a"
+        degraded = []
+        self.descriptor("svc-a", {"data": other, "logs": []})
+        state = self.g.service_state(self.cfg(cache_roots=[str(self.caches)]), degraded)
+        self.assertEqual(state["paths"], [])
+        rows = [d for d in degraded if d.get("source") == "fabric-descriptors"]
+        self.assertEqual([d["path"] for d in rows], [other])
+        self.assertIn("another operating system", rows[0]["reason"])
+
+    def test_a_descriptor_installed_between_plan_and_act_stops_the_removal_in_a_run(self):
+        self.folder("svc-late")
+        cfg = self.cfg(cache_roots=[str(self.caches)], cache_keep=[])
+        real = self.g.plan_cache_dirs
+
+        def plan_then_install(*args, **kwargs):
+            out = real(*args, **kwargs)
+            self.descriptor("svc-late", {"data": str(self.caches / "svc-late"), "logs": []})
+            return out
+        with patch.object(self.g, "load_config", return_value=cfg), \
+                patch.object(self.g, "plan_cache_dirs", side_effect=plan_then_install), \
+                patch.object(self.g.Holders, "take", return_value=self.free()), \
+                patch.object(self.g, "refresh", return_value="fresh"), \
+                patch.object(self.g, "large_files", return_value=None), \
+                patch.object(self.g, "running", return_value=False):
+            doc = self.g.run(["--apply", "--level", "critical"])
+        self.assertTrue((self.caches / "svc-late" / "jobs").exists())
+        self.assertEqual(doc["results"]["removed"], 0)
+
+    def test_a_descriptor_file_named_for_no_service_keeps_nothing(self):
+        self.folder("one")
+        (self.services / "x.json").mkdir()
+        kept, degraded = [], []
+        self.assertEqual(len(self.plan(kept, degraded)), 1)
+        self.assertEqual(kept, [])
+        self.assertEqual([Path(d["path"]).name for d in degraded if d.get("source") == "fabric-descriptors"],
+                         ["x.json"])
+
+    def test_the_descriptor_read_stops_at_its_deadline(self):
+        self.descriptor("svc-a", {"data": str(self.caches / "svc-a"), "logs": []})
+        degraded = []
+        state = self.g.service_state(self.cfg(), degraded, deadline=time.monotonic() - 1)
+        self.assertFalse(state["complete"])
+        self.assertTrue([d for d in degraded if d.get("source") == "fabric-descriptors"
+                         and "time" in d.get("reason", "")])
+
+    def test_a_temporary_root_honours_the_marker(self):
+        (self.t1 / "svc-scratch").mkdir()
+        (self.t1 / "svc-scratch" / self.g.KEEP_MARKER).write_text("")
+        (self.t1 / "plain").mkdir()
+        age(self.t1, 9)
+        kept = []
+        plan = self.g.plan_temp(self.cfg(), "normal", self.free(), time.time(), None, None, kept)
+        self.assertEqual([Path(a["target"]).name for a in plan], ["plain"])
+        self.assertEqual([(Path(k["target"]).name, k["class"]) for k in kept], [("svc-scratch", "temp")])
+
+    def test_a_build_output_folder_with_the_marker_is_not_disposable(self):
+        import cleanup_safety
+        d = self.base / "node_modules"
+        (d / "pkg").mkdir(parents=True)
+        (d / "pkg" / self.g.KEEP_MARKER).write_text("")
+        self.assertIn(".observatory-keep", cleanup_safety.protected_tree_reason(str(d)))
+
+    def test_the_report_lists_what_was_kept(self):
+        self.folder("svc-jobs", marker=True)
+        cfg = self.cfg(cache_roots=[str(self.caches)], cache_keep=[])
+        with patch.object(self.g, "load_config", return_value=cfg), \
+                patch.object(self.g.Holders, "take", return_value=self.free()), \
+                patch.object(self.g, "refresh", return_value="fresh"), \
+                patch.object(self.g, "large_files", return_value=None), \
+                patch.object(self.g, "running", return_value=False):
+            doc = self.g.run(["--apply", "--level", "critical"])
+        self.assertTrue((self.caches / "svc-jobs" / "jobs" / "job-1").exists())
+        self.assertEqual([(Path(k["target"]).name, k["class"]) for k in doc["kept"]], [("svc-jobs", "cache-dir")])
+        import paths
+        report = json.loads((paths.SCRATCH / "disk-guard.json").read_text())
+        self.assertEqual(report["kept"], doc["kept"])
+
+    def test_the_machine_view_and_page_show_a_kept_folder(self):
+        import paths
+        import machine_view
+        paths.SCRATCH.mkdir(parents=True, exist_ok=True)
+        kept = [{"class": "cache-dir", "target": str(self.caches / "svc-jobs"),
+                 "reason": "the folder carries .observatory-keep: an agent service keeps live state here"}]
+        (paths.SCRATCH / "disk-guard.json").write_text(json.dumps({"at": "2026-10-22T00:00:00Z", "kept": kept}))
+        view = importlib.reload(machine_view).summary()
+        self.assertEqual(view["guard"]["kept"], kept)
+        sys.path.insert(0, str(ROOT / "dashboard"))
+        import machine_page
+        from i18n import Translator
+        html = machine_page.guard_html(view["guard"], Translator("en"))
+        self.assertIn("Kept by the guard", html)
+        self.assertIn("svc-jobs", html)
+        self.assertIn(".observatory-keep", html)
+
+
 class Cadence(Base):
     def run_auto(self, previous_at, free_gb):
         import paths
@@ -691,11 +1169,11 @@ class RunBudget(Base):
         calls = []
         real = self.g.act
 
-        def act(a, holders):
+        def act(a, holders, *more):
             calls.append(a)
             if len(calls) == 2:
                 raise KeyboardInterrupt          # the job's kill, as far as this process can tell
-            return real(a, holders)
+            return real(a, holders, *more)
         with contextlib.ExitStack() as stack:
             for p in self.patched():
                 stack.enter_context(p)
