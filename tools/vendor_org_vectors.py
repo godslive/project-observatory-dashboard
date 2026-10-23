@@ -7,7 +7,8 @@ Copies, byte for byte from that commit (read with `git show`, so the checkout's 
 matter), the node's vectors of `fixtures/vectors/` (the estate record, the relay, the ceremonies and the organization
 enrollment's `http-signature.json` and `share-registration.json`) and `schemas/device-enrollment.schema.json` into
 `observatory/engine/fabric/node-vectors/`, the device request and check-in fixtures CT-65 added and the key-on-record
-renewal fixtures of DEC-0100 into its `device/` folder, and every `estate-*` fixture of `fixtures/semantic/` into its
+renewal fixtures of DEC-0100 into its `device/` folder, the node summary's schema, catalogue and fixtures
+(OBS-192) into its `summary/` folder, and every `estate-*` fixture of `fixtures/semantic/` into its
 `semantic/` folder but the one the public-release gate refuses (`SEMANTIC_LEFT_OUT`), removing a vendored `estate-*`
 fixture the commit no longer has (OBS-171). Then it rewrites every commit the folder's README names and the digest
 rows of the files outside `semantic/`, and the commit of the engine's contract pin
@@ -51,7 +52,22 @@ FILES = {**{name: "fixtures/vectors/" + name for name in (
          "device/device-enrollment-request-key-on-record.json":
              "fixtures/positive/device-enrollment-request-key-on-record.json",
          "device/device-enrollment-key-on-record-with-token.json":
-             "fixtures/negative/device-enrollment-key-on-record-with-token.json"}
+             "fixtures/negative/device-enrollment-key-on-record-with-token.json",
+         # The node's harness summary and its drift (DEC-0101, DEC-0102, OBS-192): the schema with the two it refers
+         # to, the coding-agent catalogue its ids come from (DEC-0093), the policy that carries a baseline, and every
+         # node-summary fixture, positive, negative and semantic, but one: `node-summary-path-in-name.json` names a home
+         # folder, a shape the public-release gate refuses, so tests/test_node_summary.py rebuilds it from the positive.
+         "summary/node-summary.schema.json": "schemas/node-summary.schema.json",
+         "summary/common.schema.json": "schemas/common.schema.json",
+         "summary/activity-common.schema.json": "schemas/activity-common.schema.json",
+         "summary/coding-agents.json": "catalogue/coding-agents.json",
+         "summary/device-policy-harness-baseline.json": "fixtures/positive/device-policy-harness-baseline.json",
+         "summary/positive/node-summary.json": "fixtures/positive/node-summary.json",
+         **{"summary/negative/node-summary-%s.json" % name: "fixtures/negative/node-summary-%s.json" % name
+            for name in ("dotted-suffix", "drift-dotted-suffix", "endpoint-query", "mcp-dotted-suffix",
+                         "personal-context", "server-arguments", "skill-two-at")},
+         **{"summary/semantic/node-summary-%s.json" % name: "fixtures/semantic/node-summary-%s.json" % name
+            for name in ("drift-hidden", "drift-without-baseline", "duplicate", "ok", "other-org", "person")}}
 #: The contract's estate fixtures, vendored into `semantic/` without a digest row (`test_node_pairing.py` runs each).
 SEMANTIC = re.compile(r"^estate-[A-Za-z0-9-]+\.json$")
 #: Its slot is the AWS documentation's example access key id, a shape the public-release gate refuses;
@@ -129,7 +145,7 @@ def vendor(contract: Path, commit: str) -> dict:
         pattern = re.compile(r"^\| `%s` \| `[0-9a-f]{64}` \|$" % re.escape(name), re.M)
         readme = pattern.sub(row, readme) if pattern.search(readme) else readme.rstrip("\n") + "\n" + row + "\n"
         target = VECTORS / name
-        target.parent.mkdir(exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists() or target.read_bytes() != data:
             changed.append(name)
         target.write_bytes(data)
