@@ -513,8 +513,8 @@
       "path": "contract_lock.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "9bae6cf3002dabd6151129fe4922f210b5ba89c8bba40146cb96b1b53837a96b",
-      "bytes": 5485
+      "export_sha256": "0eb36d3d6218ecd9cbbacf435be7aeebb8ea1c4eb9bcb803e9f0fbf17419fcfa",
+      "bytes": 13501
     },
     {
       "path": "coverage_view.py",
@@ -884,8 +884,8 @@
     {
       "path": "docs/COMPATIBILITY.md",
       "source_sha256": "70f6b5a2e54c5205f145ba07549c23d28ba8407be99c4098cd467ae8ee9f9280",
-      "export_sha256": "40e8cd341a233cdfa2237e6888cddebd868f16712aaef26acec70e910aacb48f",
-      "bytes": 28470,
+      "export_sha256": "432e0660b544996a8c493804eb4ab77b83eb0073ea113746cacee2d5fdc13b21",
+      "bytes": 29456,
       "upstream_modified": true
     },
     {
@@ -950,8 +950,8 @@
     {
       "path": "fabric/FABRIC-CONFORMANCE.md",
       "source_sha256": "8353184efa4e9f48a2b464028d7366b975bf217c42b7736ab404f06e188a4fc8",
-      "export_sha256": "93c776036f7f46a015a720313fe94660a60523a4d958257c98eb69131e7f1e19",
-      "bytes": 14296,
+      "export_sha256": "bcf2812ee9709421a0a5a2d6c001d330f4add697ca2013bed1761918f0a4f062",
+      "bytes": 14866,
       "upstream_modified": true
     },
     {
@@ -1134,22 +1134,22 @@
       "path": "fabric/interop-schemas/README.md",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "eb828e7822c9888673849e32dd0936e05184ca370536c884c6d016e29aa3c90f",
-      "bytes": 1786
+      "export_sha256": "7aeed43813c596f2ae75d7def19c0deebae1647276cb16fad4723fbbfee70cab",
+      "bytes": 2035
     },
     {
       "path": "fabric/interop-schemas/common.schema.json",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "b0b4f7dafa9ccffd345ec319c97cacf65b1983c2da874c63606ca60cab448fd5",
-      "bytes": 4065
+      "export_sha256": "707a28c49e8a370d3ace2898406093ad9bac93952054f05bbffeb0b912dd8e99",
+      "bytes": 12834
     },
     {
       "path": "fabric/interop-schemas/interop-common.schema.json",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "ae795534c91966c8ef89a604c872a499986f17bc93dd14e8ce803c17217b4b74",
-      "bytes": 5095
+      "export_sha256": "6ad2272474108d353625b702d63ffdc54710d7525d81eaa1960bbf338b17758a",
+      "bytes": 6678
     },
     {
       "path": "fabric/interop-schemas/interop-job-handle.schema.json",
@@ -1169,8 +1169,8 @@
       "path": "fabric/interop-schemas/interop-job-tool-output.schema.json",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "d8c5ddbd9a331d6529cc7c62e643359cd685f0d3745262190311e4d50e0539f1",
-      "bytes": 426
+      "export_sha256": "09d83297be58e2ffd0a934b327398f4a68e6ca05f78a21cd1b50925c3ef7fd67",
+      "bytes": 456
     },
     {
       "path": "fabric/interop-schemas/interop-job.schema.json",
@@ -1183,8 +1183,8 @@
       "path": "fabric/interop-schemas/interop-request-meta.schema.json",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "04c1cab07c11a03d994a2bcbffb69e388822185decdc92a103c831610e7ff58c",
-      "bytes": 594
+      "export_sha256": "ba3ce2692c4c08b99224b5e775b616f7370fe8f4296c166b366f6cba8937be46",
+      "bytes": 885
     },
     {
       "path": "fabric/interop-schemas/interop-result.schema.json",
@@ -2035,15 +2035,15 @@
       "path": "fabric/schemas/grant-check-input.schema.json",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "41f44c08a4ae97bbc9396aa3b8f195f975500889ea6ccce32d52021d4b0e674e",
-      "bytes": 1355
+      "export_sha256": "0b596409fb53b6c7c0916ed1d40e450cb8de57f8f0d9336d652ad57cd9b93d23",
+      "bytes": 1417
     },
     {
       "path": "fabric/schemas/grant-check-output.schema.json",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "3a1bcc75fce6e24370e3418c7898f63e07dd9711fcca68a2a8487cafb40218ac",
-      "bytes": 4637
+      "export_sha256": "0284d45674b23d6e884f57f4a21ca31e33713b7b73b4f046990f5e984df60dd9",
+      "bytes": 4691
     },
     {
       "path": "fabric/schemas/mcp-inventory-input.schema.json",
@@ -2120,8 +2120,8 @@
       "path": "fabric/service-schemas/README.md",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "9141cd066e7be69adc5847fb4cbfac0eb9425701f6eb264f14d9492e364b17bf",
-      "bytes": 653
+      "export_sha256": "747e52cb7460a98063d3c6202ce0af2382d6c650c2ecc81602ef3cc15ed60824",
+      "bytes": 1926
     },
     {
       "path": "fabric/service-schemas/common.schema.json",
@@ -2343,8 +2343,8 @@
       "path": "meter.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "650dfc947fb4bbcee25d91fb827f28f50c556e96d7b71f86921cfa37149f3387",
-      "bytes": 38159
+      "export_sha256": "d6c74899694542c3b2e19624abeab0389a661f16cbaddbb1bb7db0a1de3d3a36",
+      "bytes": 38226
     },
     {
       "path": "node/__init__.py",
@@ -3288,8 +3288,8 @@
     {
       "path": "tests/run_portable.py",
       "source_sha256": "91af29946323164242a665108886f47adee4f6d1a43a6975aa851bc474436edf",
-      "export_sha256": "cd88c8af051020eab420780ff607fa3712682d87b9fd7b33c9a706f932451c8e",
-      "bytes": 45074,
+      "export_sha256": "ae458029e1b63642e5b2a6ee16f96adefd338bcb99a929ac60e193e9fc6eaaef",
+      "bytes": 45190,
       "python_comments_removed": 3,
       "python_docstrings_removed": 2,
       "tool_descriptions_retained": 0,
@@ -3608,8 +3608,8 @@
       "path": "tests/test_contract_lock.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "e9711b81244e82dbe8a67c1656d266aced641c64dfff66f16007aa6aef056eac",
-      "bytes": 9300
+      "export_sha256": "8f48b4a358528e5cf5129db2399ede95868eeac89a1d64b7a9c15da2efa4a362",
+      "bytes": 16465
     },
     {
       "path": "tests/test_corroboration.py",
@@ -3900,8 +3900,8 @@
       "path": "tests/test_fabric_service.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "1256b7c1be4736bd4d6f32ce10851838fef604bd460e2631c1d2926a0dde9f02",
-      "bytes": 57709
+      "export_sha256": "9cf162e4ffb36f27667468a03b78ad7206a6fb11addef99d05e50365c697a38f",
+      "bytes": 58252
     },
     {
       "path": "tests/test_facts_learning.py",
@@ -4503,8 +4503,8 @@
       "path": "tests/test_node_org.py",
       "source_sha256": null,
       "upstream_modified": true,
-      "export_sha256": "fbc4f5a4dfcdf161e87e7111d2714993bab5b4cb426d3ca5f68e8896272e94c0",
-      "bytes": 92228
+      "export_sha256": "1db3015816dbfcca69c050b3daab39b01dbe02dcbccd08e5761504dd7fb5e507",
+      "bytes": 92231
     },
     {
       "path": "tests/test_node_pairing.py",
