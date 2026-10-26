@@ -657,7 +657,7 @@ contract DEC-0101, corrected by DEC-0102 (`docs/specification/node-summary.md` t
   this enrollment's certificate (DEC-0114, above); one that fails stays here with `nodeSummaryNote` reason
   `attribution`. The check-in's own `protocols` lists only what the node reads, `fabric-device/0.1`
   (`NODE_READS`): a server gates on it what it sends (DEC-0116, DEC-0117), so no server sends this node
-  `records.repairs` (`repair-request/1` joins the list with the repair runner, OBS-193), credential decisions,
+  `records.repairs` (`repair-request/1` joins the list only while a repair could run here, OBS-193, below), credential decisions,
   envelopes, revocations or `callRecordsAccepted`; and the node sends none of DEC-0111's members (`credentialRequests`,
   `callRecords`), whatever the server lists, until the credential exchange (OBS-191, OBS-194). Its `sequence` is spent once sent, answered or not, like the
   check-in's `sequenceNum`; a failed check-in leaves the summary due. The scans are read before the enrollment's lock is
@@ -697,6 +697,85 @@ and no agent reference an estate placement could match, so `services_in_context`
 person's services in other contexts are never listed (DEC-0082; the operator's question is the contract's CT-92). A
 plugin's digest (a baseline naming one reads `changed` until it is computed), Codex's skills and a project's own skills
 are not listed yet.
+
+## The repair runner (OBS-193)
+
+An organization's administrator asks one enrolled machine to run one package (its target S10): contract DEC-0101,
+corrected by DEC-0102 and gated by DEC-0117 (`docs/specification/node-summary.md#repairs` there), under the machine's
+remote-execution policy (FAC-SEM-068).
+
+- **The port.** `observatory/engine/node/repair.py` ports `repairDecision` (`src/node-summary.ts`), the settings
+  canonical form (`settingsCanonicalJson`, `policySigningInput`), `verifyWith` (Ed25519 of full order, or ES256 over a
+  raw SEC 1 point with an R || S signature) and FAC-SEM-068's remote-execution answer (`remote_execution_allowed`) at
+  the engine's pin. `tests/test_node_repair.py` runs it over every case of the contract's shared vectors
+  (`fabric/node-vectors/repair/repair-decision.json`), the settings form over `canonical.json`, the request and result
+  shapes (`request_problems`, `result_problems`) against the vendored schemas and every repair fixture, and the
+  FAC-SEM-068 remote-execution case. A key's window is `relay.key_window_holds` (DEC-0115, DEC-0119); every time is
+  read as RFC 3339 strictly.
+- **Two readings the contract leaves to the port, both the safe side.** A signed layer whose `expiresAt` does not read
+  as a time is read as expired (the reference's `Date.parse` would make it never expire; the schema admits no such
+  layer), so remote execution stops. A request the schema refuses (a two-line `task`, a member it does not know) is
+  never shown or run and is answered `refused` `bad-signature`, the one reason for a request whose signed form is not
+  the contract's; one whose `id` does not read is recorded in the journal and not answered (a result needs an id).
+- **What a hostile server sends stops nothing** (the security review of #366). A request deeper than 8 levels,
+  larger than about 64 KB, or holding a lone surrogate (JSON `"\ud800"`, which no UTF-8 store or canonical form holds)
+  is refused before anything else reads it (`body_problem`), with that code as its note; any other failure on one
+  request is journalled by its exception's name (`repair-unreadable`), never its text, and the others go on. The
+  check-in's own state (the next check-in time, the protocols, an arrived policy) is saved before any repair is read,
+  so nothing a repair holds loses it.
+- **No shell, no command.** A request that passes runs only as a local action the machine's owner allow-listed for its
+  `agentRef` in the owner-only `config/node-repair.json` (`{schemaVersion: 1, agents: {agentRef: {action, targetId}},
+  lifecycle: {bearerSlot}}`): `restart` or `ensure_running` of a target enrolled with `node.lifecycle`, asked of the
+  broker through its own door (`POST /mcp` on the local server) with the bearer of an access binding the operator
+  issued for the runner, read from the vault slot for one call (`LifecycleExecutor`). The broker's grant, its person
+  rules (`in_use_by_person`, `held_off`) and its receipts hold as for any caller; the lifecycle request id is derived
+  from the organization and the repair id, so a start retried after a crash gets the first operation. A package the
+  policy allows but the owner allow-listed nothing for is answered `failed` (`run-failed`) before the person is told,
+  since nothing would run. A file that is a link, not owner-only, or not that shape runs nothing, with the reason.
+- **The person first.** A request that passes everything but the person step is shown at once (`org status`
+  `repairs`, `org repair`, doctor and Health: the organization's one-line `task`, the package, when it starts, and
+  `full org repair --org ID --decline REPAIR_ID`) and starts no earlier than `NOTICE_SECONDS` (15 minutes, one pass of
+  the maintenance job) later; a decline answers it `person-declined` at once. The decision is taken again at the
+  moment it would start, with the time the person was told, so a request or a policy that expired meanwhile is refused.
+  A machine with role `org-cloud` binds no person: the signed request is its notice and `notifiedAt` the moment the
+  node verified it (DEC-0102), and it starts at once. The role comes from the server's binding, which no signature
+  covers, so it counts only when the certificate binds no person and the enrollment this machine made with a token
+  carried it (`org_cloud`, `enrolledRole`); a certificate binding a person with role `org-cloud` is refused, and a
+  renewal or a rotation that adds, drops or changes a role is refused `binding-changed` (`_same_binding`), the
+  certificate on record kept. A certificate without a role is recorded `role: null`; a record saved by 0.27.0 or
+  0.28.0, which kept no role at all, renews and rotates as before and, with no `enrolledRole`, keeps the notice.
+- **Once per id, every step audited.** One row per request id in the enrollment's owner-only outbox database
+  (`repairs`): the request as received, when it was received and the person told, the lifecycle operation, and the
+  one stored `repair-result/1` (checked against its schema before it is stored). A redelivered id gets that result
+  again unchanged and never runs twice; `already-answered` is never sent. A body is kept only while a schema-valid
+  repair waits or runs; a refused or answered one keeps its id and result alone. An answered id is forgotten only
+  after a server took its result and its own request's `expiresAt` is a day past (a redelivery is refused `expired`
+  by then), never by when it was answered: a request that came before its `issuedAt` is answered early and stays live.
+  A row whose request had no readable expiry is kept, within the row bound. At most
+  64 repairs wait and 10 000 rows are kept: past them a request is not recorded (`repair-book-full`) and the server
+  sends it again later. A removal or a closed organization forgets what had not started. Every step writes one journal line of codes and ids
+  (`repair-received`, `repair-notified`, `repair-declined`, `repair-started`, `repair-answered`,
+  `repair-redelivered`, `repair-malformed`, `repair-unreadable`, `repair-book-full`, `repair-unasked`): never the bearer, the signature, the task text or a body.
+- **The wire.** A check-in response's `records.repairs` (at most 16) is read after the check-in is taken, and only
+  when that check-in listed `repair-request/1`: repairs it did not ask for are counted in the journal
+  (`repair-unasked`) and dropped, never recorded or run. Each request is
+  recorded and answered or shown under the enrollment's lock; the tick's `repairs` step, after the check-in, starts
+  what is due and polls what runs (a run past 30 minutes is `failed`, `timeout`). Results ride the next check-in's
+  `records.repairResults` (at most 64) only to a server whose response lists `repair-result/1` (DEC-0117); a check-in
+  refused for what they may cause is sent again at once without them and they wait a day (`org:repair-results-refused`),
+  so heartbeats never stop. The check-in lists `repair-request/1` in its own `protocols` only while a repair could
+  run here (`Enrollment.repairs_enabled`): the signed key set and policy applied, `repair.packages` listing a package,
+  remote execution not stopped, and the owner's allow-list naming an action and the bearer slot. DEC-0117 lists it
+  when the node "reads repairs and acts on them", and a node that would refuse every repair does not ask for them.
+
+Not built here: the signed key set and policy are applied by OE-06, so `policy_keys` and `policy_layers` are empty
+and `repairs_enabled` answers `policy-not-applied`: the check-in does not list `repair-request/1`, and a repair a
+server sends anyway is counted in the journal and dropped. Until
+then the runner is exercised end to end only in tests, with the policy injected (`tests/test_node_repair.py`
+`Enrolled`). The person is told through `org status`, doctor and Health, not a system notification. A package runs
+only as a lifecycle action: a repair agent of its own, verified by its digest and run in a sandbox, is a later step.
+The bearer goes to whatever listens on the engine server's loopback port, which has no proof of its identity yet
+(OBS-248).
 
 ## Lifecycle (OBS-79)
 
