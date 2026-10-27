@@ -7,6 +7,21 @@ while the major version is 0, a minor release may change behaviour and says so h
 
 ### Added
 
+- **An agent asks Observatory for a key instead of asking you in its chat** (OBS-260, OSS-84,
+  `docs/ONBOARDING.md`, design `docs/design/PERSON-SURFACES.md` D4). The server half: the new MCP tool
+  `observatory_secret_request` (project, env, slot, why, optional provider and `replace`) files a request with
+  the local server and returns a `fabric.job.*` job whose `output.outcome` is `stored`, `declined`, `no-answer`,
+  `unconfirmed` or `no-client`, never a value; `fabric.job.cancel` withdraws the request. The node names the agent
+  from a binding you issue when you connect it (`full agent-binding issue|show|revoke`, at a terminal; the MCP
+  server takes `--agent NAME`), never from text the agent wrote, and serves `secret.request`, `secret.get` and
+  `secret.cancel` on `POST /mcp` to that binding only. It keeps the queue in `<state>/secret-requests/`: one open
+  request per slot, five new requests per agent per hour, ten minutes to answer, a filled slot replaced only when
+  asked, `stored` only after the slot shows a write. A local server that is down answers "Observatory is not
+  running" and a machine with no desktop "no desktop to ask the person on", each with the `vault.py put` step for
+  your own shell. The window and your phrase are not in this release: every request with a desktop is answered
+  `no-client` with that step and nothing is filed. The limit: any agent running as your user can read another
+  agent's token file and file a request under its name; the window will still show the slot and the reason.
+
 - **Home replaces Overview: is everything fine, and what needs you first** (OBS-261, scenario OSS-88,
   `docs/design/PERSON-SURFACES.md` decision D1). The first page now opens on six state tiles (sites, apps, disk and
   memory, keys, agents, personal cloud), each with the time or period it was measured; a source that did not run says
